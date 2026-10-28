@@ -140,6 +140,14 @@ node src/server.ts clear                              # after an unknown outcome
 
 To stop all payments, create an empty file named `off` in the tool's folder: `~/.payzilla-payer/assistant/off` on macOS and Linux, `%USERPROFILE%\.payzilla-payer\assistant\off` on Windows. Delete it to start again.
 
+## Known advisory
+
+`npm audit` reports one high-severity advisory: GHSA-mrhx-c7xc-m3w5, in `zod` before 4.6.6 (validating very large collections can use up memory). It comes in through the x402 library this tool uses (`@x402/svm` 2.28.0, which brings `@x402/core` 2.28.0).
+
+This tool never loads that part. It uses only the x402 payment client, which does not use `zod`. The answers it reads from Payzilla are capped at 64 KB and checked by its own strict rules first. Even in the worst case the tool would only stop: your key stays in the keychain and nothing is sent.
+
+Our CI fails on any other high or critical advisory. This one stays allowed, by its id only, until we move to the fixed library version.
+
 ## Licence
 
 MIT. See LICENSE.

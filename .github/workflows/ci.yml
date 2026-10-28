@@ -17,4 +17,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npx tsc --noEmit
       - run: npx vitest run
-      - run: npm audit --omit=dev --audit-level=high
+      - name: npm audit (high and critical fail, except the one advisory named in the README)
+        shell: bash
+        run: |
+          npm audit --omit=dev --json > audit.json || true
+          node -e 'const r = JSON.parse(require("fs").readFileSync("audit.json", "utf8")); const v0 = r && r.vulnerabilities; if (r.auditReportVersion !== 2 || !v0 || typeof v0 !== "object" || Array.isArray(v0)) { console.error("audit: no audit report (the audit did not run)"); process.exit(1); } const minor = (s) => ["info", "low", "moderate"].includes(s); const allow = [{"id":"GHSA-mrhx-c7xc-m3w5","pkg":"zod","via":"@x402/core"}]; const bad = []; for (const [p, v] of Object.entries(v0)) { if (!v || !Array.isArray(v.via)) { bad.push(p); continue; } if (v.via.length === 0 && !minor(v.severity)) bad.push(p + " (no advisory named)"); for (const a of v.via) { if (typeof a === "string") { if (!Object.hasOwn(v0, a)) bad.push(p + " via " + a); continue; } if (typeof a !== "object" || a === null) { bad.push(p); continue; } const id = String(a.url).split("/").pop(); const ok = allow.some((x) => x.id === id && x.pkg === p && a.name === p && v.isDirect === false && Array.isArray(v.effects) && v.effects.length > 0 && v.effects.every((e) => e === x.via)); if (!minor(a.severity) && !ok) bad.push(p + " " + id); } } if (bad.length) { console.error("audit: not allowed: " + bad.join(", ")); process.exit(1); } console.log("audit: ok");'

@@ -63,8 +63,12 @@ describe("keychain (macOS security, Linux secret-tool), against a fake tool", ()
     await kc.remove(); expect(await kc.exists()).toBe(false);
     await expect(windowsKeychain(fakeRun(() => ({ code: 0, out: "not hex" })).run, mkdtempSync(join(tmpdir(), "kc-win-"))).add(KEY.secret)).rejects.toMatchObject({ word: "unavailable" });
     const notADir = join(mkdtempSync(join(tmpdir(), "kc-win-")), "file"); writeFileSync(notADir, "x");   // only "file not found" is absent; another file error is unavailable
-    await expect(windowsKeychain(f.run, notADir).exists()).rejects.toMatchObject({ word: "unavailable" });
-    await expect(windowsKeychain(f.run, notADir).read()).rejects.toMatchObject({ word: "unavailable" });
+    if (process.platform !== "win32") {   // on Windows a path through a file is "not found" (ENOENT), so there it reads as no wallet
+      await expect(windowsKeychain(f.run, notADir).exists()).rejects.toMatchObject({ word: "unavailable" });
+      await expect(windowsKeychain(f.run, notADir).read()).rejects.toMatchObject({ word: "unavailable" });
+    }
+    const dirAsFile = mkdtempSync(join(tmpdir(), "kc-win-")); mkdirSync(join(dirAsFile, "wallet.dpapi"));   // on every system: the key file is a folder
+    await expect(windowsKeychain(f.run, dirAsFile).read()).rejects.toMatchObject({ word: "unavailable" });
     const raced = mkdtempSync(join(tmpdir(), "kc-win-"));   // a wallet that appears while PowerShell runs is never replaced (the file is created exclusively)
     const r2 = fakeRun(() => { writeFileSync(join(raced, "wallet.dpapi"), "first"); return { code: 0, out: BLOB }; });
     await expect(windowsKeychain(r2.run, raced).add(KEY.secret)).rejects.toMatchObject({ word: "exists" }); expect(readFileSync(join(raced, "wallet.dpapi"), "utf8")).toBe("first");

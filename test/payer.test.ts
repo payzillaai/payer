@@ -144,7 +144,7 @@ describe("payer tool: files, two processes, clear, wire", () => {
     const m: Marker = { state: "pending", listingId: ID, amountMinor: "10000", at: "t" };
     expect(s.take(m)).toBe(true); expect(s.take(m)).toBe(false); expect(fileStore(dir).take(m)).toBe(false);
     expect(readdirSync(dir).sort()).toEqual(["marker.json"]); expect(JSON.parse(readFileSync(join(dir, "marker.json"), "utf8"))).toEqual(m);   // written in full, then linked; no temp file left
-    const held = join(mkdtempSync(join(tmpdir(), "payer-")), "s"), h = fileStore(held, () => { throw Object.assign(new Error("busy"), { code: "EBUSY" }); });   // Windows antivirus holding the temp file
+    const held = join(mkdtempSync(join(tmpdir(), "payer-")), "s"), h = fileStore(held, { unlinkTemp: () => { throw Object.assign(new Error("busy"), { code: "EBUSY" }); } });   // Windows antivirus holding the temp file
     expect(h.take(m)).toBe(true); expect(h.marker()).toEqual(m); expect(h.take(m)).toBe(false); h.release(); expect(h.marker()).toBeNull(); expect(h.take(m)).toBe(true);
     s.update({ ...m, state: "unknown" }); expect(s.marker()?.state).toBe("unknown"); s.release(); expect(s.marker()).toBeNull();
     s.saveAttempts([1, 2]); expect(s.attempts()).toEqual([1, 2]); expect(s.refusals()).toEqual([]); s.saveRefusals([3]); expect(s.refusals()).toEqual([3]);
@@ -153,6 +153,11 @@ describe("payer tool: files, two processes, clear, wire", () => {
     writeFileSync(join(dir, "marker.json"), JSON.stringify({ state: "gone" })); expect(() => s.marker()).toThrow();
     writeFileSync(join(dir, "attempts.json"), JSON.stringify(["x"])); expect(() => s.attempts()).toThrow();
     writeFileSync(join(dir, "refusals.json"), "{"); expect(() => s.refusals()).toThrow();
+    const busy = (n: number, code = "EPERM") => { let left = n; return (f: string): string => { if (left-- > 0) throw Object.assign(new Error("pending delete"), { code }); return readFileSync(f, "utf8"); }; };   // Windows: a file being deleted
+    const w = join(mkdtempSync(join(tmpdir(), "payer-")), "s"); fileStore(w).take(m);
+    const t0 = Date.now(); expect(fileStore(w, { read: busy(3) }).marker()).toEqual(m); expect(Date.now() - t0).toBeGreaterThanOrEqual(10);   // it waits between tries, it does not spin
+    expect(fileStore(w, { read: busy(9, "EBUSY") }).marker()).toEqual(m);
+    expect(() => fileStore(w, { read: busy(10) }).marker()).toThrow(); expect(() => fileStore(w, { read: busy(1, "EACCES") }).marker()).toThrow();
     const odd = join(mkdtempSync(join(tmpdir(), "payer-")), "s"); mkdirSync(join(odd, "marker.json"), { recursive: true }); expect(() => fileStore(odd).marker()).toThrow();   // only a missing file is no marker
   });
   it("clear: refused without a terminal; at a terminal only the typed CLEAR removes the marker", async () => {

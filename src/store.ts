@@ -9,10 +9,22 @@ import type { Marker, Store } from "./payer.ts";
 const isMarker = (m: unknown): m is Marker => typeof m === "object" && m !== null && ["pending", "unknown"].includes((m as Marker).state) && typeof (m as Marker).listingId === "string" && typeof (m as Marker).amountMinor === "string" && typeof (m as Marker).at === "string";
 /** The files, written so two processes cannot both hold the marker and no reader ever sees half a file: the marker is written in full to a temp file, then LINKED into place
  *  (the link fails if a marker exists: the lock; a file system without hard links, such as FAT, makes take throw, so nothing is paid there); every other write goes through a temp file and a rename. A file that cannot be read throws: the tool then pays nothing. */
-/** `unlinkTemp`: removes a temp file; best effort (Windows antivirus or indexing can hold it): a leftover temp file never changes the answer. */
-export function fileStore(dir: string, unlinkTemp: (f: string) => void = unlinkSync): Store {
+/** `unlinkTemp`: removes a temp file; best effort (Windows antivirus or indexing can hold it): a leftover temp file never changes the answer.
+ *  `read`: reads a file. On Windows a file another process is deleting refuses reads for a moment (EPERM, EBUSY): that read is tried again, up to 10 times a few ms apart. */
+export function fileStore(dir: string, io: { unlinkTemp?: (f: string) => void; read?: (f: string) => string } = {}): Store {
+  const unlinkTemp = io.unlinkTemp ?? unlinkSync, read = io.read ?? ((f: string) => readFileSync(f, "utf8"));
   const mf = join(dir, "marker.json"), af = join(dir, "attempts.json"), rf = join(dir, "refusals.json");
-  const text = (f: string): string | null => { try { return readFileSync(f, "utf8"); } catch (e) { if ((e as { code?: string }).code === "ENOENT") return null; throw e; } };
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  const text = (f: string): string | null => {
+    for (let i = 0; ; i++) {
+      try { return read(f); } catch (e) {
+        const code = (e as { code?: string }).code;
+        if (code === "ENOENT") return null;
+        if ((code === "EPERM" || code === "EBUSY") && i < 9) { Atomics.wait(pause, 0, 0, 5); continue; }
+        throw e;
+      }
+    }
+  };
   const times = (f: string, what: string): number[] => { const t = text(f); if (t === null) return []; const a: unknown = JSON.parse(t); if (!Array.isArray(a) || !a.every((x) => Number.isFinite(x))) throw new Error(`${what}_unreadable`); return a as number[]; };
   const temp = (f: string): string => `${f}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   const ready = (): void => { mkdirSync(dir, { recursive: true, mode: 0o700 }); chmodSync(dir, 0o700); };
