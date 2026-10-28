@@ -1,0 +1,29 @@
+{
+  "name": "payzilla-payer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Your assistant pays a verified Payzilla Marketplace listing from a small wallet whose key is in your computer's keychain.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "server": "node src/server.ts",
+    "wallet": "node src/small-wallet.ts"
+  },
+  "dependencies": {
+    "@solana-program/compute-budget": "0.11.0",
+    "@solana-program/token": "0.9.0",
+    "@solana-program/token-2022": "0.6.1",
+    "@solana/kit": "5.5.1",
+    "@x402/svm": "2.28.0"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.1",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7"
+  }
+}
