@@ -12,7 +12,7 @@ import { join } from "node:path";
 // @ts-expect-error plain node module (no types)
 import { signerFromText } from "./lib/x402-client.mjs";
 import { callTool } from "./lib/mcp-client.ts";
-import { isMain } from "./lib/main-guard.ts";
+import { isMain, scriptPath } from "./lib/main-guard.ts";
 import { systemKeychain, type Keychain } from "./keychain.ts";
 import { ownSigner, ownTools, ruleFor, usdcText, type OwnTools } from "./own.ts";
 import { MCP_URL, payLink, payListing, priceMinor, UUID, within, type Answer, type Call, type Signer, type Store } from "./payer.ts";
@@ -109,5 +109,5 @@ if (isMain(import.meta.url)) {
     process.exitCode = setCap(STATE_DIR, a1, { isTTY: process.stdin.isTTY === true, out });
   } else if (cmd === "clear" && a1 === undefined) {
     clear(fileStore(STATE_DIR), terminalClearIo(), "your small wallet").then((c) => { process.exitCode = c; }, () => { process.exitCode = 1; });
-  } else { out("usage: node services/mcp-payer/src/server.ts [cap <USDC> | clear]\n"); process.exitCode = 1; }
+  } else { out(`usage: node ${scriptPath(import.meta.url)} [cap <USDC> | clear]\n`); process.exitCode = 1; }
 }
