@@ -1,18 +1,22 @@
 // A small, separate wallet for an assistant to pay from: its key is made here and kept only in the operating system's keychain (keychain.ts).
 //   node services/mcp-payer/src/small-wallet.ts init                      make a NEW wallet; refuses if one exists. Prints only its address.
 //   node services/mcp-payer/src/small-wallet.ts address                   print the address and the balances
+//   node services/mcp-payer/src/small-wallet.ts fund                      print the address and a Solana Pay link to send it USDC (reads no balance)
 //   node services/mcp-payer/src/small-wallet.ts withdraw <address> <USDC> send USDC out, after the typed WITHDRAW <amount> <first4...last4>
 //   node services/mcp-payer/src/small-wallet.ts remove                    delete the key; refuses while USDC is left, unless REMOVE AND LOSE <balance> is typed
 // Put in only what you are ready to lose. Payments need no SOL (Payzilla's fee payer pays their fee); a withdrawal pays its own fee (and a new USDC account for the address, if it has none),
 // so keep about 0.003 SOL in the wallet for it. The address is always derived from the stored key; no address file is kept.
 // Memory: byte arrays are zeroed after use (best effort); text cannot be zeroed in JavaScript.
 import { generateKeyPairSync } from "node:crypto";
+import { closeSync, mkdirSync, openSync, unlinkSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { appendTransactionMessageInstructions, createKeyPairSignerFromBytes, createSolanaRpc, createTransactionMessage, getBase58Decoder, getBase58Encoder, getBase64EncodedWireTransaction, getSignatureFromTransaction, pipe, setTransactionMessageFeePayerSigner, setTransactionMessageLifetimeUsingBlockhash, signTransactionMessageWithSigners, type Address, type Blockhash } from "@solana/kit";
 import { findAssociatedTokenPda, getCreateAssociatedTokenIdempotentInstruction, getTransferCheckedInstruction, TOKEN_PROGRAM_ADDRESS } from "@solana-program/token";
 // @ts-expect-error plain node module (no types)
 import { USDC_MINT } from "./lib/x402-client.mjs";
 import { createPrompts } from "./lib/hidden-prompt.mjs";
-import { isMain } from "./lib/main-guard.ts";
+import { isMain, scriptPath } from "./lib/main-guard.ts";
 import { KeychainError, systemKeychain, type Keychain } from "./keychain.ts";
 import { priceMinor } from "./payer.ts";
 
@@ -65,10 +69,28 @@ export type Outcome =
   | { outcome: "failed"; signature: string }      // it landed and failed: nothing moved; the fee was spent
   | { outcome: "refused"; reason: string };
 const refused = (reason: string): Outcome => ({ outcome: "refused", reason });
-const kcWords = (e: unknown): string => (e instanceof KeychainError ? (e.word === "empty" ? "there is no wallet in the keychain (run init)" : e.word === "exists" ? "a wallet already exists in the keychain" : "the keychain could not be used (unlock it, or install its tool)") : "the keychain could not be used");
+export const kcWords = (e: unknown): string => (e instanceof KeychainError ? (e.word === "empty" ? "there is no wallet in the keychain (run init)" : e.word === "exists" ? "a wallet already exists in the keychain" : "the keychain could not be used (unlock it, or install its tool)") : "the keychain could not be used");
 
-/** init: a NEW wallet, only when the keychain holds none; the stored key is READ BACK and compared before the address is shown. */
-export async function initWallet(kc: Keychain): Promise<Outcome> {
+/** A Solana Pay transfer request for USDC to this wallet, with no amount: the sending wallet asks for it (Solana Pay spec, transfer request). Pure. */
+export const fundLink = (address: string): string => `solana:${address}?spl-token=${USDC_MINT}&label=Payzilla%20payer`;
+export const fundText = (address: string): string =>
+  `Fund it: send USDC on Solana to the address, or open the link in a Solana wallet (it asks for the amount). Only what you are ready to lose; payments need no SOL.\naddress ${address}\nlink ${fundLink(address)}`;
+
+/** One change to the wallet at a time on this computer: init and remove hold an exclusive lock file. Linux's keychain replaces an item without asking, so two inits at
+ *  once could both see "none" and the second would replace a key the first had shown. No takeover: a lock left by a crash names itself, and the person deletes it. */
+export const initLockFile = (): string => join(homedir(), ".payzilla-payer", "init.lock");
+async function withLock(lock: string | undefined, fn: () => Promise<Outcome>): Promise<Outcome> {
+  let file: string | undefined = lock, busy = false, made = false;
+  try { file ??= initLockFile(); mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); } catch { return refused(`the lock file ${file ?? "~/.payzilla-payer/init.lock"} could not be made`); }
+  try { closeSync(openSync(file, "wx")); made = true; } catch (e) { busy = (e as { code?: string } | null)?.code === "EEXIST"; }
+  if (busy) return refused(`another setup, init or remove is changing the wallet right now; if none is running, delete ${file} and run this again`);
+  if (!made) return refused(`the lock file ${file} could not be made`);
+  try { return await fn(); } finally { try { unlinkSync(file); } catch { /* already gone */ } }
+}
+
+/** init: a NEW wallet, only when the keychain holds none, under the lock. The stored key is READ BACK and compared before the address is shown. It never deletes a key:
+ *  a key the read-back cannot confirm stays in the keychain (no address was shown for it), and `address` shows what is there. */
+export const initWallet = (kc: Keychain, lock?: string): Promise<Outcome> => withLock(lock, async () => {
   let w: { secret: string; address: string };
   try {
     if (await kc.exists()) return refused("a wallet already exists in the keychain: withdraw and remove it first");
@@ -77,12 +99,9 @@ export async function initWallet(kc: Keychain): Promise<Outcome> {
   } catch (e) { return refused(kcWords(e)); }
   let back: string | null = null;
   try { back = await kc.read(); } catch { /* compared below */ }
-  if (back !== w.secret) {   // the new key was never shown or funded: delete it, or say how to
-    try { await kc.remove(); } catch { return refused(`the key could not be read back and could not be deleted; it was never shown or funded. Delete it by hand (${MANUAL_DELETE}), then run init again`); }
-    return refused("the key could not be stored and read back; no wallet was made (run init again later)");
-  }
+  if (back !== w.secret) return refused("the new wallet could not be confirmed in the keychain; nothing was deleted. Run address to see what it holds, then run this again");
   return { outcome: "ok", address: w.address };
-}
+});
 
 /** withdraw: ONE USDC transfer out, to a WALLET address the person typed, after the typed confirmation. The wallet pays the fee (and the new USDC account, if the address has none). */
 export async function withdraw(o: { kc: Keychain; chain: Chain; to: string; amountMinor: bigint; ask: (prompt: string) => Promise<string | null>; wait?: (ms: number) => Promise<void> }): Promise<Outcome> {
@@ -128,7 +147,7 @@ export async function withdraw(o: { kc: Keychain; chain: Chain; to: string; amou
 }
 
 /** remove: delete the key. The balance is read for the key's OWN address (no file is trusted). Refused while USDC is left or the balance is unknown, unless the person types REMOVE AND LOSE <balance>. */
-export async function removeWallet(o: { kc: Keychain; chain: Chain; ask: (prompt: string) => Promise<string | null> }): Promise<Outcome> {
+export const removeWallet = (o: { kc: Keychain; chain: Chain; ask: (prompt: string) => Promise<string | null>; lock?: string }): Promise<Outcome> => withLock(o.lock, async () => {
   let secret: string;
   try { if (!(await o.kc.exists())) return { outcome: "ok" }; secret = await o.kc.read(); } catch (e) { return refused(`${kcWords(e)}; to delete a damaged key by hand: ${MANUAL_DELETE}`); }
   let left: bigint | null = null;
@@ -139,7 +158,7 @@ export async function removeWallet(o: { kc: Keychain; chain: Chain; ask: (prompt
   }
   try { await o.kc.remove(); } catch (e) { return refused(kcWords(e)); }
   return { outcome: "ok" };
-}
+});
 
 export function liveChain(rpcUrl = "https://api.mainnet-beta.solana.com"): Chain {
   const rpc = createSolanaRpc(rpcUrl);
@@ -155,7 +174,7 @@ export function liveChain(rpcUrl = "https://api.mainnet-beta.solana.com"): Chain
 }
 
 /** The command line, testable: every refusal or failure exits 1; only ok and confirmed exit 0. */
-export async function cli(args: string[], d: { kc: Keychain | null; chain: () => Chain; ask: (prompt: string) => Promise<string | null>; out: (text: string) => void; wait?: (ms: number) => Promise<void> }): Promise<number> {
+export async function cli(args: string[], d: { kc: Keychain | null; lock?: string; chain: () => Chain; ask: (prompt: string) => Promise<string | null>; out: (text: string) => void; wait?: (ms: number) => Promise<void> }): Promise<number> {
   const [cmd, a1, a2, ...rest] = args;
   const link = (s: string): string => `transaction ${s}\nhttps://solscan.io/tx/${s}`;
   const show = (o: Outcome): number => {
@@ -167,8 +186,8 @@ export async function cli(args: string[], d: { kc: Keychain | null; chain: () =>
   try {
     if (!d.kc) return show(refused("only macOS, Linux and Windows are supported"));
     if (cmd === "init" && a1 === undefined) {
-      const code = show(await initWallet(d.kc));
-      if (code === 0) d.out("Send it only what you are ready to lose, in USDC (payments need no SOL). Keep about 0.003 SOL in it to withdraw later.");
+      const made = await initWallet(d.kc, d.lock), code = show(made);
+      if (made.outcome === "ok" && made.address) d.out(`${fundText(made.address)}\nKeep about 0.003 SOL in it to withdraw later.`);
       return code;
     }
     if (cmd === "address" && a1 === undefined) {
@@ -177,12 +196,15 @@ export async function cli(args: string[], d: { kc: Keychain | null; chain: () =>
       d.out(`address ${a}\nUSDC ${usdc((await c.tokenBalance(await usdcAccount(a))) ?? 0n)}\nSOL lamports ${await c.lamports(a)}`);
       return 0;
     }
+    if (cmd === "fund" && a1 === undefined) {
+      try { d.out(fundText(await addressOf(await d.kc.read()))); return 0; } catch (e) { return show(refused(kcWords(e))); }
+    }
     if (cmd === "withdraw" && a1 && a2 && rest.length === 0) {
       const amount = priceMinor(a2); if (amount === null) return show(refused("the amount must be a USDC amount, like 0.25"));
       return show(await withdraw({ kc: d.kc, chain: d.chain(), to: a1, amountMinor: amount, ask: d.ask, ...(d.wait ? { wait: d.wait } : {}) }));
     }
-    if (cmd === "remove" && a1 === undefined) return show(await removeWallet({ kc: d.kc, chain: d.chain(), ask: d.ask }));
-    return show(refused("usage: node services/mcp-payer/src/small-wallet.ts init | address | withdraw <address> <USDC> | remove"));
+    if (cmd === "remove" && a1 === undefined) return show(await removeWallet({ kc: d.kc, chain: d.chain(), ask: d.ask, ...(d.lock ? { lock: d.lock } : {}) }));
+    return show(refused(`usage: node ${scriptPath(import.meta.url)} init | address | fund | withdraw <address> <USDC> | remove`));
   } catch { return show(refused("an error before anything was signed")); }
 }
 

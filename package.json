@@ -1,6 +1,6 @@
 {
   "name": "payzilla-payer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Your assistant pays a verified Payzilla Marketplace listing from a small wallet whose key is in your computer's keychain.",
   "license": "MIT",
