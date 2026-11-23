@@ -2,20 +2,21 @@
 
 Let your AI assistant pay for things on the Payzilla Marketplace, in USDC on Solana, from a small wallet of its own. The wallet's key stays in your computer's keychain; Payzilla never sees it.
 
-MIT licence · release v0.1.0 (signed tag) · Node.js 24+ · macOS, Linux, Windows · for developers who run an AI assistant with local MCP servers (tested with Claude Code)
+MIT licence · release v0.2.0 (signed tag) · Node.js 24+ · macOS, Linux, Windows · for developers who run an AI assistant with local MCP servers (tested with Claude Code)
 
 **Cost to try:** the tool is free. You put a little USDC in the small wallet and pay only the listing's price (from 0.01 USDC). Payzilla pays the network fee today.
 
 ```bash
-git clone --branch v0.1.0 https://github.com/payzillaai/payer.git && cd payer
-npm ci --ignore-scripts
-node src/small-wallet.ts init        # makes the wallet; prints only its address
-# send that address a little USDC on Solana
-node src/server.ts cap 0.50          # your cap per payment (at most 10 USDC)
-claude mcp add payzilla-payer --scope user -- node "$PWD/src/server.ts"
-claude mcp add --transport http payzilla https://paywith.payzilla.ai/mcp/read
+git clone --branch v0.2.0 https://github.com/payzillaai/payer.git ~/payzilla-payer; node ~/payzilla-payer/src/setup.ts
 ```
-Then ask your assistant: "Find a Payzilla listing for X and pay it."
+Setup installs what the tool needs, makes the small wallet (only if this computer has none), adds `payzilla-wallet` and the Marketplace to Claude Code, and prints the line for Codex. Then it prints the wallet's address and a link a Solana wallet can open to send it USDC. Running it again keeps the wallet and the entries it finds. Setup runs on macOS and Linux (tested by us on macOS; on Linux its tests pass in CI, but a real setup has not been run yet); on Windows, use the steps by hand below.
+
+Then ask your assistant: "Find a Payzilla listing for X and pay it with payzilla-wallet." The cap per payment is 0.50 USDC until you change it: `node ~/payzilla-payer/src/server.ts cap 1`.
+
+- Git may print that the release tag "is not a commit". The release tag is a signed tag pointing at a commit; the warning is harmless.
+- If you already have an MCP server named `payzilla-wallet`, setup keeps it and tells you. To try it in a clean Claude Code session with only the servers from one file: `claude --strict-mcp-config --mcp-config <file.json>`.
+- Your assistant may ask you to approve `pay_listing` before the first payment (Claude Code did in auto mode in our test); that is expected because the tool sends real money.
+- For development (typecheck and tests), install with `npm ci --ignore-scripts` instead. It adds the test tools.
 
 ## Status: Early. Real money. Use with caution.
 This tool lets an AI assistant pay Payzilla Marketplace listings in USDC on Solana mainnet from a small wallet whose key is kept in your operating system's keychain. **It uses real money.**
@@ -42,14 +43,21 @@ This tool lets an AI assistant pay Payzilla Marketplace listings in USDC on Sola
 - Windows: Windows PowerShell 5.1, which comes with Windows. The key is encrypted for your Windows user (DPAPI). On a company computer with PowerShell logging or transcription turned on, the key may be written to a log. Use a personal computer, or ask your admin.
 - About 0.003 SOL in the wallet if you want to withdraw later. Payments themselves need no SOL.
 
-On Windows, write `src\` instead of `src/` in the commands, in PowerShell or cmd.
+### By hand (Windows, or if you prefer)
+In PowerShell or cmd, in the cloned folder (write `src\` instead of `src/` on Windows):
+```bash
+npm ci --omit=dev --ignore-scripts
+node src/small-wallet.ts init        # makes the wallet; prints only its address and a link to fund it
+claude mcp add payzilla-wallet --scope user -- node "<full path>/src/server.ts"
+claude mcp add --transport http payzilla https://paywith.payzilla.ai/mcp/read
+```
 
 ## Connect another assistant
 - The payer is a local MCP server over stdio. The command is `node`, the argument is the full path to `src/server.ts`.
 - To find listings, the assistant also needs the Marketplace: the MCP address `https://paywith.payzilla.ai/mcp/read`.
 - Claude Desktop: add the payer to `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`; Windows: `%APPDATA%\Claude\`), then restart:
   ```json
-  { "mcpServers": { "payzilla-payer": { "command": "node", "args": ["<full path>/payer/src/server.ts"] } } }
+  { "mcpServers": { "payzilla-wallet": { "command": "node", "args": ["<full path>/payer/src/server.ts"] } } }
   ```
 
 ## What the tool answers
@@ -64,6 +72,7 @@ On Windows, write `src\` instead of `src/` in the commands, in PowerShell or cmd
 ## Everyday commands
 ```bash
 node src/small-wallet.ts address                     # the address and the balances
+node src/small-wallet.ts fund                        # the address and a link to send it USDC from a Solana wallet
 node src/small-wallet.ts withdraw <address> <USDC>   # send USDC out; you type a confirmation word
 node src/small-wallet.ts remove                      # delete the key; it refuses while USDC is left
 node src/server.ts clear                             # after an unknown answer, once you checked the chain

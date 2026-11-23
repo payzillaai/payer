@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { analyzePaymentTransaction, signerFromText, USDC_MINT } from "./lib/x402-client.mjs";
 import { callTool } from "./lib/mcp-client.ts";
 import { createPrompts } from "./lib/hidden-prompt.mjs";
-import { isMain } from "./lib/main-guard.ts";
+import { isMain, scriptPath } from "./lib/main-guard.ts";
 import { clear, fileStore, terminalClearIo } from "./store.ts";
 import { isObj, MCP_URL, payListing, priceMinor, RESOURCE, UUID, type Allowed, type Call, type Signer } from "./payer.ts";
 
@@ -25,7 +25,7 @@ export const usdcText = (minor: bigint): string => `${minor / 1_000_000n}.${(min
 /** `<listing id> [--cap <USDC>]` -> the listing id and the cap in minor units, or why not. Pure. */
 export function parseOwnArgs(argv: readonly string[]): { id: string; capMinor: bigint } | string {
   const [id, flag, cap, ...rest] = argv;
-  if (typeof id !== "string" || !UUID.test(id) || rest.length > 0 || (flag !== undefined && flag !== "--cap")) return "usage: node services/mcp-payer/src/own.ts <listing id> [--cap <USDC, at most 1>]";
+  if (typeof id !== "string" || !UUID.test(id) || rest.length > 0 || (flag !== undefined && flag !== "--cap")) return `usage: node ${scriptPath(import.meta.url)} <listing id> [--cap <USDC, at most 1>]`;
   if (flag === undefined) return { id, capMinor: DEFAULT_CAP_MINOR };
   const c = priceMinor(cap);
   return c !== null && c > 0n && c <= MAX_CAP_MINOR ? { id, capMinor: c } : "the cap must be a USDC amount above 0 and at most 1";

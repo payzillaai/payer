@@ -1,4 +1,8 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getBase58Decoder } from "@solana/kit";
+import { KeychainError, type Keychain } from "../src/keychain.ts";
 import type { Allowed, Marker, Store } from "../src/payer.ts";
 
 /** Test ids and addresses built at run time: no uuid and no real wallet address sits in a file that goes public. */
@@ -24,3 +28,18 @@ export function memStore(init: { marker?: Marker | null; attempts?: number[]; re
   };
   return s;
 }
+
+/** A keychain in memory; `readBack` makes the read-back differ, `readThrows` makes reading fail. */
+export function memKc(start: string | null = null, o: { readBack?: () => string; readThrows?: boolean } = {}): Keychain & { s: string | null } {
+  const k = {
+    s: start,
+    exists: async () => k.s !== null,
+    add: async (x: string) => { if (k.s !== null) throw new KeychainError("exists"); k.s = x; },
+    read: async () => { if (o.readThrows) throw new KeychainError("unavailable"); if (k.s === null) throw new KeychainError("empty"); return o.readBack ? o.readBack() : k.s; },
+    remove: async () => { k.s = null; },
+  };
+  return k;
+}
+
+/** A fresh init lock path in its own temporary folder: tests never touch the real ~/.payzilla-payer. */
+export const lockIn = (): string => join(mkdtempSync(join(tmpdir(), "init-lock-")), "init.lock");
