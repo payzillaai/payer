@@ -60,6 +60,7 @@ describe("the small wallet: one change at a time (the lock)", () => {
     const lock = lockIn(); expect((await initWallet(memKc(KEY.secret), lock)).outcome).toBe("refused"); expect(existsSync(lock)).toBe(false);
     expect((await initWallet(memKc(), lock)).outcome).toBe("ok"); expect(existsSync(lock)).toBe(false);
     expect((await removeWallet({ lock, kc: memKc(KEY.secret), chain: fakeChain({ usdc: 0n }), ask: async () => null })).outcome).toBe("ok"); expect(existsSync(lock)).toBe(false);
+    if (process.platform === "win32") return;   // the two cases below need a file used as a folder and a read-only folder (POSIX); setup refuses Windows anyway
     const bad = "/dev/null/init.lock", r = await initWallet(memKc(), bad); expect(r).toEqual({ outcome: "refused", reason: `the lock file ${bad} could not be made` });
     const ro = mkdtempSync(join(tmpdir(), "ro-")); chmodSync(ro, 0o500); const roLock = join(ro, "init.lock"), kc = memKc();   // the folder exists, the file cannot be created
     expect(await initWallet(kc, roLock)).toEqual({ outcome: "refused", reason: `the lock file ${roLock} could not be made` }); expect(kc.s).toBeNull(); chmodSync(ro, 0o700);

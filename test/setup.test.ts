@@ -7,7 +7,7 @@ import { depsCurrent, FINDER_NAME, FINDER_URL, makeRun, nodeRefusal, setup, WALL
 import * as wallet from "../src/small-wallet.ts";
 import { lockIn, memKc } from "./fixtures.ts";
 
-const ROOT = "/home/a/payer", NODE = "/usr/bin/node", SERVER = `${ROOT}/src/server.ts`;
+const ROOT = "/home/a/payer", NODE = "/usr/bin/node", SERVER = join(ROOT, "src", "server.ts");   // join: the path the code builds on this system
 
 /** A fake machine: npm, and a claude whose servers live in `servers` (name -> target). Every call is recorded. The missing-name text is claude's own, seen in a real run. */
 function machine(o: { npm?: number | null; claude?: boolean; addFails?: boolean; getFails?: boolean; scope?: string; servers?: Record<string, string> } = {}) {
@@ -97,7 +97,7 @@ describe("setup: one command from a clone to a ready payer", () => {
   });
   it("a failed add says how to add by hand and exits 1; paths with spaces are quoted in printed lines", async () => {
     const r = await go(machine({ addFails: true }), { root: "/home/A B/payer" });
-    expect(r.code).toBe(1); expect(r.text).toContain(`could not add "${WALLET_NAME}". By hand: claude mcp add --scope user ${WALLET_NAME} -- ${NODE} "/home/A B/payer/src/server.ts"`);
+    expect(r.code).toBe(1); expect(r.text).toContain(`could not add "${WALLET_NAME}". By hand: claude mcp add --scope user ${WALLET_NAME} -- ${NODE} "${join("/home/A B/payer", "src", "server.ts")}"`);
   });
   it("setup uses the lock it is given: a held lock stops it with the lock's words, before Claude Code, and no key is made", async () => {
     const lock = lockIn(); writeFileSync(lock, ""); const m = machine(), kc = memKc(), r = await go(m, { kc, initLock: lock });
@@ -139,6 +139,7 @@ describe("makeRun: real processes, no shell", () => {
   });
   it("a timeout or a kill is a failure with its reason, never 'not installed'", () => {
     const slow = makeRun(300)(node, ["-e", "setTimeout(() => {}, 10000)"]); expect(slow.code).toBe(1); expect(slow.out).toContain("timed out after 0.3 s");
+    if (process.platform === "win32") return;   // Windows has no signals: a killed process there ends with an exit code, which the line above already covers
     const killed = run(node, ["-e", "process.kill(process.pid, 'SIGKILL')"]); expect(killed.code).toBe(1); expect(killed.out).toContain("stopped (SIGKILL)");
   });
 });
