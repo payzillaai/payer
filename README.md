@@ -2,12 +2,12 @@
 
 Let your AI assistant pay for things on the Payzilla Marketplace, in USDC on Solana, from a small wallet of its own. The wallet's key stays in your computer's keychain; Payzilla never sees it.
 
-MIT licence · release v0.2.1 (signed tag) · Node.js 24+ · macOS, Linux, Windows · for developers who run an AI assistant with local MCP servers (tested with Claude Code)
+MIT licence · release v0.2.2 (signed tag) · Node.js 24+ · macOS, Linux, Windows · for developers who run an AI assistant with local MCP servers (tested with Claude Code)
 
 **Cost to try:** the tool is free. You put a little USDC in the small wallet and pay only the listing's price (from 0.01 USDC). Payzilla pays the network fee today.
 
 ```bash
-git clone --branch v0.2.1 https://github.com/payzillaai/payer.git ~/payzilla-payer; node ~/payzilla-payer/src/setup.ts
+git clone --branch v0.2.2 https://github.com/payzillaai/payer.git ~/payzilla-payer; node ~/payzilla-payer/src/setup.ts
 ```
 Setup installs what the tool needs, makes the small wallet (only if this computer has none), adds `payzilla-wallet` and the Marketplace to Claude Code, and prints the line for Codex. Then it prints the wallet's address and a link a Solana wallet can open to send it USDC. Running it again keeps the wallet and the entries it finds. Setup runs on macOS and Linux (tested by us on macOS; on Linux its tests pass in CI, but a real setup has not been run yet); on Windows, use the steps by hand below.
 
@@ -44,7 +44,12 @@ This tool lets an AI assistant pay Payzilla Marketplace listings in USDC on Sola
 - About 0.003 SOL in the wallet if you want to withdraw later. Payments themselves need no SOL.
 
 ### By hand (Windows, or if you prefer)
-In PowerShell or cmd, in the cloned folder (write `src\` instead of `src/` on Windows):
+On Windows, open a normal PowerShell window, not "Run as administrator" (that one starts in `C:\Windows\System32`). Get the code and go into its folder:
+```powershell
+git clone --branch v0.2.2 https://github.com/payzillaai/payer.git payzilla-payer
+cd payzilla-payer
+```
+In PowerShell, type `npm.cmd` where this page says `npm` (and `claude.cmd` if you installed Claude Code with npm). Windows often blocks the plain `npm` command with an error that a script "cannot be loaded". Or use Command Prompt, where plain `npm` works. You do not need to change any PowerShell setting. Copy each command exactly; in Command Prompt leave out the `# ...` notes.
 ```bash
 npm ci --omit=dev --ignore-scripts
 node src/small-wallet.ts init        # makes the wallet; prints only its address and a link to fund it
